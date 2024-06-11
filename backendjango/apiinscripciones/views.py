@@ -1,10 +1,16 @@
-from django.http import JsonResponse, HttpResponseBadRequest
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
+from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.dateparse import parse_date
-from .models import Inscripcion
+from .models import Inscripcion, Arancel
 from apialumnos.models import Alumno
 from apitutores.models import Tutor, TutorAlumno
 import json
+from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 
 def inscripciones_list(request):
     inscripciones = Inscripcion.objects.all()
@@ -55,3 +61,70 @@ def inscripcion_anular(request, id):
         except Inscripcion.DoesNotExist:
             return JsonResponse({"error": "Inscripción no encontrada"}, status=404)
     return HttpResponseBadRequest("Método no permitido")
+
+def generar_pdf(request, id):
+    # Obtener la inscripción correspondiente
+    inscripcion = get_object_or_404(Inscripcion, id=id)
+
+    # Obtener datos del tutor y del alumno
+    tutor = inscripcion.tutor_alumno.tutor
+    alumno = inscripcion.tutor_alumno.alumno
+    arancel = inscripcion.aranceles.first()  # Suponiendo que sólo hay un arancel asociado a la inscripción
+
+    # Asegurarse de usar los atributos correctos
+    tutor_nombre = tutor.tut_nom
+    tutor_apellido = tutor.tut_ape
+    tutor_direccion = tutor.tut_direc
+    alumno_nombre = alumno.alum_nom
+    alumno_apellido = alumno.alum_ape
+    arancel_matricula = arancel.arancel_matricula
+    arancel_cuota = arancel.arancel_cuota
+    arancel_nivel = arancel.arancel_nivel
+    arancel_grado = arancel.arancel_grado
+
+    # Definir el contenido del contrato
+    contract_content = [
+        ("CONTRATO DE SERVICIOS EDUCATIVOS", "CENTER", True),
+        ("CENTRO EDUCATIVO PARAGUAY - BRASIL (CEPB)", "CENTER", True),
+        (f'{tutor_nombre} {tutor_apellido} (en adelante "el/la Padre/Madre/Tutor") con domicilio en {tutor_direccion} actuando en nombre y representación del estudiante {alumno_nombre} {alumno_apellido}', "LEFT", True),
+        ("Se acuerda lo siguiente:", "LEFT", True),
+        ("Primero: Objeto", "LEFT", True),
+        ("CEPB se compromete a brindar servicios educativos de acuerdo a los programas oficiales y normas establecidas por el Ministerio de Educación, y el/la Padre/Madre/Tutor se compromete a cumplir con las condiciones aquí establecidas.", "JUSTIFY", False),
+        ("Segundo: Duración", "LEFT", True),
+        ("El presente contrato tendrá una duración de un (1) año lectivo.", "JUSTIFY", False),
+        ("Tercero: DERECHOS Y OBLIGACIONES DE CEPB", "LEFT", True),
+        ("Proveer educación integral conforme al currículo vigente. Facilitar el acceso a instalaciones adecuadas y seguras. Ofrecer actividades extracurriculares y servicios adicionales, según lo estipulado. Evaluar y reportar el desempeño académico y comportamental del estudiante periódicamente. Garantizar un entorno educativo libre de discriminación y acoso.", "JUSTIFY", False),
+        ("CUARTO: DERECHOS Y OBLIGACIONES DEL/LA PADRE/MADRE/TUTOR", "LEFT", True),
+        ("Pagar puntualmente las matrículas y cuotas establecidas por CEPB. Asegurar que el estudiante cumpla con las normas y reglamentos del colegio. Participar en reuniones y actividades escolares convocadas por CEPB. Informar oportunamente sobre cualquier cambio en los datos del estudiante o familiares. Colaborar con el colegio en el seguimiento del progreso académico y conductual del estudiante.", "JUSTIFY", False),
+        ("QUINTO: PAGO DE MATRÍCULAS Y CUOTAS", "LEFT", True),
+        (f'El/la Padre/Madre/Tutor se compromete a pagar una matrícula anual de {arancel_matricula} y una cuota mensual de {arancel_cuota}, en el nivel {arancel_nivel}, y grado {arancel_grado}, en el que se encuentra el estudiante. Los pagos deben realizarse dentro de los primeros cinco días hábiles de cada mes. En caso de mora, se aplicará un recargo del 15% mensual sobre el monto adeudado.', "JUSTIFY", False),
+        ("SEXTO: TERMINACIÓN DEL CONTRATO", "LEFT", True),
+        ("El presente contrato podrá ser terminado por: Decisión unilateral del/la Padre/Madre/Tutor, con un aviso previo de treinta (30) días. Incumplimiento de las obligaciones aquí pactadas por cualquiera de las partes. Decisión del CEPB por razones disciplinarias graves o impago reiterado.", "JUSTIFY", False),
+        ("SÉPTIMO: DISPOSICIONES GENERALES", "LEFT", True),
+        ("Cualquier modificación a este contrato deberá hacerse por escrito y ser firmada por ambas partes.", "JUSTIFY", False)
+    ]
+
+    # Crear un objeto PDF
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = 'attachment; filename="contrato_servicios_educativos.pdf"'
+
+    # Crear documento PDF usando ReportLab
+    doc = SimpleDocTemplate(response, pagesize=letter)
+    elements = []
+
+    # Definir estilos
+    styles = getSampleStyleSheet()
+    style_center = ParagraphStyle(name="Center", alignment=TA_CENTER)
+    style_left = ParagraphStyle(name="Left", alignment=TA_LEFT)
+    style_justify = ParagraphStyle(name="Justify", alignment=TA_JUSTIFY)
+
+    # Agregar contenido al PDF
+    for text, alignment, is_bold in contract_content:
+        style = style_center if alignment == "CENTER" else (style_left if alignment == "LEFT" else style_justify)
+        if is_bold:
+            style.fontName = "Helvetica-Bold"
+        elements.append(Paragraph(text, style))
+
+    doc.build(elements)
+
+    return response

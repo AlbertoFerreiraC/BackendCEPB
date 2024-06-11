@@ -1,5 +1,9 @@
 from django.db import models
 from apitutores.models import *
+from django.shortcuts import get_object_or_404
+import io
+from django.db import models
+
 class Inscripcion(models.Model):
     tutor_alumno = models.ForeignKey('apitutores.TutorAlumno', on_delete=models.CASCADE)
     ins_fecha = models.DateField(auto_now_add=True)
@@ -16,17 +20,14 @@ class Inscripcion(models.Model):
     ins_periodo = models.CharField(max_length=4)
 
     def save(self, *args, **kwargs):
-        # Obtener el tutor y contar las inscripciones existentes para este tutor
         tutor = self.tutor_alumno.tutor
         inscripciones_existentes = Inscripcion.objects.filter(tutor_alumno__tutor=tutor).count()
 
-        # Calcular el descuento basado en el número de hijos ya inscritos
         if tutor.tut_tipo in ['Padre', 'Madre', 'Tutor legal']:
             self.ins_descuento = max(0, inscripciones_existentes * 50000)
         else:
             self.ins_descuento = 0
         
-        # Calcular la cuota después de aplicar el descuento
         self.ins_cuota = 500000 - self.ins_descuento
 
         super().save(*args, **kwargs)
@@ -34,7 +35,6 @@ class Inscripcion(models.Model):
     def __str__(self):
      return f"Inscripción de {self.tutor_alumno.alumno} con {self.tutor_alumno.tutor} - {self.ins_fecha}"
 
-from django.db import models
 
 class Arancel(models.Model):
     inscripcion = models.ForeignKey('apiinscripciones.Inscripcion', related_name='aranceles', on_delete=models.CASCADE)
@@ -65,4 +65,3 @@ class Arancel(models.Model):
         return f"{self.inscripcion} - {self.arancel_nivel} - {self.arancel_cuota}"
 
 
-# Create your models here.
