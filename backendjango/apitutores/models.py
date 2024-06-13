@@ -9,7 +9,6 @@ class Tutor(models.Model):
     )
     tut_id = models.AutoField(primary_key=True)
     tut_ci = models.CharField(max_length=8)
-    tut_ruc = models.CharField(max_length=10)
     tut_tipo = models.CharField(max_length=20, choices=TIPOS_CHOICES)
     tut_nom = models.CharField(max_length=100)
     tut_ape = models.CharField(max_length=100)

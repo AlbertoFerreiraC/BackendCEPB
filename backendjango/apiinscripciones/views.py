@@ -186,3 +186,66 @@ def generar_pagare_pdf(request, id):
     doc.build(elements)
 
     return response
+
+def genera_ficha_pdf(request, id):
+    # Obtener la inscripción correspondiente
+    inscripcion = get_object_or_404(Inscripcion, id=id)
+
+    # Obtener datos del tutor y del alumno
+    tutor = inscripcion.tutor_alumno.tutor
+    alumno = inscripcion.tutor_alumno.alumno
+    arancel = inscripcion.aranceles.first()  # Suponiendo que sólo hay un arancel asociado a la inscripción
+
+    # Asegurarse de usar los atributos correctos
+    tutor_nombre = tutor.tut_nom
+    tutor_apellido = tutor.tut_ape
+    tutor_direccion = tutor.tut_direc
+    tutor_ci = tutor.tut_ci
+    alumno_nombre = alumno.alum_nom
+    alumno_apellido = alumno.alum_ape
+    arancel_matricula = arancel.arancel_matricula
+    arancel_cuota = arancel.arancel_cuota
+    arancel_nivel = arancel.arancel_nivel
+    arancel_grado = arancel.arancel_grado
+
+    # Definir el contenido de la ficha de inscripción
+    ficha_content = [
+        ("FICHA DE INSCRIPCIÓN", "CENTER", True),
+        (f"Tutor: {tutor_nombre} {tutor_apellido}", "LEFT", False),
+        (f"C.I.: {tutor_ci}", "LEFT", False),
+        (f"Dirección: {tutor_direccion}", "LEFT", False),
+        (f"Alumno: {alumno_nombre} {alumno_apellido}", "LEFT", False),
+        (f"Nivel: {arancel_nivel}", "LEFT", False),
+        (f"Grado: {arancel_grado}", "LEFT", False),
+        (f"Matrícula: {arancel_matricula} guaraníes", "LEFT", False),
+        (f"Cuota: {arancel_cuota} guaraníes", "LEFT", False),
+        ("Lugar y Fecha", "LEFT", True),
+        ("____________________________", "LEFT", True),
+        ("Firma del Tutor", "LEFT", True),
+    ]
+
+    # Crear un objeto PDF
+    response = HttpResponse(content_type='application/pdf')
+    response['Content-Disposition'] = f'attachment; filename="ficha_{alumno_nombre}_{alumno_apellido}.pdf"'
+
+    # Crear documento PDF usando ReportLab
+    doc = SimpleDocTemplate(response, pagesize=letter)
+    elements = []
+
+    # Definir estilos
+    styles = getSampleStyleSheet()
+    style_center = ParagraphStyle(name="Center", alignment=TA_CENTER)
+    style_left = ParagraphStyle(name="Left", alignment=TA_LEFT)
+    style_justify = ParagraphStyle(name="Justify", alignment=TA_JUSTIFY)
+
+    # Agregar contenido al PDF
+    for text, alignment, is_bold in ficha_content:
+        style = style_center if alignment == "CENTER" else (style_left if alignment == "LEFT" else style_justify)
+        if is_bold:
+            style.fontName = "Helvetica-Bold"
+        elements.append(Paragraph(text, style))
+
+    doc.build(elements)
+
+    return response
+
