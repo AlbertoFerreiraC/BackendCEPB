@@ -5,7 +5,7 @@ class Tutor(models.Model):
         ('Padre', 'Padre'),
         ('Madre', 'Madre'),
         ('Tutor legal', 'Tutor legal'),
-        ('Otro', 'Otro'),
+        ('Otro', 'Otros'),
     )
     tut_id = models.AutoField(primary_key=True)
     tut_ci = models.CharField(max_length=8)
