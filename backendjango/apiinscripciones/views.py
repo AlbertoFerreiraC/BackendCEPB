@@ -1,4 +1,4 @@
-from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse
+from django.http import JsonResponse, HttpResponseBadRequest, HttpResponse, HttpResponseNotAllowed
 from django.shortcuts import get_object_or_404
 from django.views.decorators.csrf import csrf_exempt
 from django.utils.dateparse import parse_date
@@ -7,23 +7,27 @@ from apialumnos.models import Alumno
 from apitutores.models import Tutor, TutorAlumno
 import json
 from reportlab.lib.pagesizes import letter
-from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_LEFT, TA_JUSTIFY
 
 def inscripciones_list(request):
     inscripciones = Inscripcion.objects.all()
-    data = [{
-        "id": inscripcion.id,
-        "alumno": inscripcion.tutor_alumno.alumno.alum_nom,
-        "tutor": inscripcion.tutor_alumno.tutor.tut_nom,
-        "fecha_inscripcion": inscripcion.ins_fecha,
-        "descuento": inscripcion.ins_descuento,
-        "cuota": inscripcion.ins_cuota,
-        "estado": inscripcion.ins_estado,
-        "periodo": inscripcion.ins_periodo
-    } for inscripcion in inscripciones]
+    data = []
+    for inscripcion in inscripciones:
+        tutor_alumno = inscripcion.tutor_alumno
+        alumno_nombre = tutor_alumno.alumno.alum_nom
+        tutor_nombre = tutor_alumno.tutor.tut_nom
+        data.append({
+            "id": inscripcion.id,
+            "alumno": alumno_nombre,
+            "tutor": tutor_nombre,
+            "fecha_inscripcion": inscripcion.ins_fecha,
+            "descuento": inscripcion.ins_descuento,
+            "cuota": inscripcion.ins_cuota,
+            "estado": inscripcion.ins_estado,
+            "periodo": inscripcion.ins_periodo
+        })
     return JsonResponse({"inscripciones": data})
 
 @csrf_exempt
@@ -31,25 +35,41 @@ def inscripcion_create(request):
     if request.method == "POST":
         try:
             data = json.loads(request.body)
-            alumno_id = data.get("alumno_id")
-            tutor_id = data.get("tutor_id")
-            contrato_fecha = parse_date(data.get("contrato_fecha"))
+            tutor_id = data.get("tutor")
+            alumno_id = data.get("alumno")
+            contrato_fecha = parse_date(data.get("ins_contrato_fecha"))
+            periodo = data.get("ins_periodo")
 
-            alumno = Alumno.objects.get(id=alumno_id)
-            tutor = Tutor.objects.get(id=tutor_id)
+            # Validar presencia de datos requeridos
+            if not tutor_id or not alumno_id or not contrato_fecha or not periodo:
+                return JsonResponse({"error": "Datos incompletos"}, status=400)
 
-            tutor_alumno, created = TutorAlumno.objects.get_or_create(alumno=alumno, tutor=tutor)
-            
+            # Recuperar tutor y alumno
+            tutor = Tutor.objects.get(pk=tutor_id)
+            alumno = Alumno.objects.get(pk=alumno_id)
+
+            # Crear o recuperar relación Tutor-Alumno
+            tutor_alumno, _ = TutorAlumno.objects.get_or_create(
+                alumno=alumno,
+                tutor=tutor
+            )
+
+            # Crear inscripción
             inscripcion = Inscripcion.objects.create(
                 tutor_alumno=tutor_alumno,
-                ins_contrato_fecha=contrato_fecha
+                ins_contrato_fecha=contrato_fecha,
+                ins_periodo=periodo,
+                ins_estado='Inscripto'  # Por defecto, estado inicial
             )
+
             return JsonResponse({"message": "Inscripción creada exitosamente", "inscripcion_id": inscripcion.id})
-        except (Alumno.DoesNotExist, Tutor.DoesNotExist):
-            return JsonResponse({"error": "Alumno o Tutor no encontrado"}, status=404)
+        except KeyError as e:
+            return JsonResponse({"error": f"Campo requerido faltante: {e}"}, status=400)
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
-    return HttpResponseBadRequest("Método no permitido")
+    else:
+        return HttpResponseNotAllowed(["POST"])  # Devuelve 405 solo si el método no es POST
+
 
 @csrf_exempt
 def inscripcion_anular(request, id):
@@ -63,15 +83,11 @@ def inscripcion_anular(request, id):
     return HttpResponseBadRequest("Método no permitido")
 
 def generar_pdf(request, id):
-    # Obtener la inscripción correspondiente
     inscripcion = get_object_or_404(Inscripcion, id=id)
-
-    # Obtener datos del tutor y del alumno
     tutor = inscripcion.tutor_alumno.tutor
     alumno = inscripcion.tutor_alumno.alumno
-    arancel = inscripcion.aranceles.first()  # Suponiendo que sólo hay un arancel asociado a la inscripción
+    arancel = inscripcion.aranceles.first()
 
-    # Asegurarse de usar los atributos correctos
     tutor_nombre = tutor.tut_nom
     tutor_apellido = tutor.tut_ape
     tutor_direccion = tutor.tut_direc
@@ -82,7 +98,6 @@ def generar_pdf(request, id):
     arancel_nivel = arancel.arancel_nivel
     arancel_grado = arancel.arancel_grado
 
-    # Definir el contenido del contrato
     contract_content = [
         ("CONTRATO DE SERVICIOS EDUCATIVOS", "CENTER", True),
         ("CENTRO EDUCATIVO PARAGUAY - BRASIL (CEPB)", "CENTER", True),
@@ -104,21 +119,17 @@ def generar_pdf(request, id):
         ("Cualquier modificación a este contrato deberá hacerse por escrito y ser firmada por ambas partes.", "JUSTIFY", False)
     ]
 
-    # Crear un objeto PDF
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = 'attachment; filename="contrato_servicios_educativos.pdf"'
 
-    # Crear documento PDF usando ReportLab
     doc = SimpleDocTemplate(response, pagesize=letter)
     elements = []
 
-    # Definir estilos
     styles = getSampleStyleSheet()
     style_center = ParagraphStyle(name="Center", alignment=TA_CENTER)
     style_left = ParagraphStyle(name="Left", alignment=TA_LEFT)
     style_justify = ParagraphStyle(name="Justify", alignment=TA_JUSTIFY)
 
-    # Agregar contenido al PDF
     for text, alignment, is_bold in contract_content:
         style = style_center if alignment == "CENTER" else (style_left if alignment == "LEFT" else style_justify)
         if is_bold:
@@ -126,19 +137,14 @@ def generar_pdf(request, id):
         elements.append(Paragraph(text, style))
 
     doc.build(elements)
-
     return response
 
 def generar_pagare_pdf(request, id):
-    # Obtener la inscripción correspondiente
     inscripcion = get_object_or_404(Inscripcion, id=id)
-
-    # Obtener datos del tutor y del alumno
     tutor = inscripcion.tutor_alumno.tutor
     alumno = inscripcion.tutor_alumno.alumno
-    arancel = inscripcion.aranceles.first()  # Suponiendo que sólo hay un arancel asociado a la inscripción
+    arancel = inscripcion.aranceles.first()
 
-    # Asegurarse de usar los atributos correctos
     tutor_nombre = tutor.tut_nom
     tutor_apellido = tutor.tut_ape
     tutor_direccion = tutor.tut_direc
@@ -150,7 +156,6 @@ def generar_pagare_pdf(request, id):
     arancel_nivel = arancel.arancel_nivel
     arancel_grado = arancel.arancel_grado
 
-    # Definir el contenido del pagaré
     pagare_content = [
         ("PAGARÉ", "CENTER", True),
         (f"Yo, {tutor_nombre} {tutor_apellido}, con C.I. {tutor_ci} y domiciliado en {tutor_direccion}, me obligo a pagar a la orden del CENTRO EDUCATIVO PARAGUAY - BRASIL (CEPB) la suma de {arancel_matricula + arancel_cuota} guaraníes.", "JUSTIFY", False),
@@ -162,21 +167,17 @@ def generar_pagare_pdf(request, id):
         ("Firma del Deudor", "LEFT", True),
     ]
 
-    # Crear un objeto PDF
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="pagare_{inscripcion.id}.pdf"'
 
-    # Crear documento PDF usando ReportLab
     doc = SimpleDocTemplate(response, pagesize=letter)
     elements = []
 
-    # Definir estilos
     styles = getSampleStyleSheet()
     style_center = ParagraphStyle(name="Center", alignment=TA_CENTER)
     style_left = ParagraphStyle(name="Left", alignment=TA_LEFT)
     style_justify = ParagraphStyle(name="Justify", alignment=TA_JUSTIFY)
 
-    # Agregar contenido al PDF
     for text, alignment, is_bold in pagare_content:
         style = style_center if alignment == "CENTER" else (style_left if alignment == "LEFT" else style_justify)
         if is_bold:
@@ -184,19 +185,14 @@ def generar_pagare_pdf(request, id):
         elements.append(Paragraph(text, style))
 
     doc.build(elements)
-
     return response
 
 def genera_ficha_pdf(request, id):
-    # Obtener la inscripción correspondiente
     inscripcion = get_object_or_404(Inscripcion, id=id)
-
-    # Obtener datos del tutor y del alumno
     tutor = inscripcion.tutor_alumno.tutor
     alumno = inscripcion.tutor_alumno.alumno
-    arancel = inscripcion.aranceles.first()  # Suponiendo que sólo hay un arancel asociado a la inscripción
+    arancel = inscripcion.aranceles.first()
 
-    # Asegurarse de usar los atributos correctos
     tutor_nombre = tutor.tut_nom
     tutor_apellido = tutor.tut_ape
     tutor_direccion = tutor.tut_direc
@@ -208,7 +204,6 @@ def genera_ficha_pdf(request, id):
     arancel_nivel = arancel.arancel_nivel
     arancel_grado = arancel.arancel_grado
 
-    # Definir el contenido de la ficha de inscripción
     ficha_content = [
         ("FICHA DE INSCRIPCIÓN", "CENTER", True),
         (f"Tutor: {tutor_nombre} {tutor_apellido}", "LEFT", False),
@@ -224,21 +219,17 @@ def genera_ficha_pdf(request, id):
         ("Firma del Tutor", "LEFT", True),
     ]
 
-    # Crear un objeto PDF
     response = HttpResponse(content_type='application/pdf')
     response['Content-Disposition'] = f'attachment; filename="ficha_{alumno_nombre}_{alumno_apellido}.pdf"'
 
-    # Crear documento PDF usando ReportLab
     doc = SimpleDocTemplate(response, pagesize=letter)
     elements = []
 
-    # Definir estilos
     styles = getSampleStyleSheet()
     style_center = ParagraphStyle(name="Center", alignment=TA_CENTER)
     style_left = ParagraphStyle(name="Left", alignment=TA_LEFT)
     style_justify = ParagraphStyle(name="Justify", alignment=TA_JUSTIFY)
 
-    # Agregar contenido al PDF
     for text, alignment, is_bold in ficha_content:
         style = style_center if alignment == "CENTER" else (style_left if alignment == "LEFT" else style_justify)
         if is_bold:
@@ -246,6 +237,4 @@ def genera_ficha_pdf(request, id):
         elements.append(Paragraph(text, style))
 
     doc.build(elements)
-
     return response
-

@@ -1,5 +1,6 @@
 from django.db import models
-from apialumnos.models import *
+from apialumnos.models import Alumno
+
 class Tutor(models.Model):
     TIPOS_CHOICES = (
         ('Padre', 'Padre'),
@@ -18,13 +19,16 @@ class Tutor(models.Model):
 
     def __str__(self):
         return f"{self.tut_nom} {self.tut_ape}"
-    
+
+    class Meta:
+        ordering = ['tut_nom']
+
 class TutorAlumno(models.Model):
-    alumno = models.ForeignKey('apialumnos.Alumno', on_delete=models.CASCADE)
+    alumno = models.ForeignKey(Alumno, on_delete=models.CASCADE)
     tutor = models.ForeignKey(Tutor, on_delete=models.CASCADE)
 
     def __str__(self):
         return f"Tutor {self.tutor} - Alumno {self.alumno}"
 
-
-# Create your models here.
+    class Meta:
+        unique_together = ('alumno', 'tutor')  # Garantiza que no haya duplicados de alumno-tutor
