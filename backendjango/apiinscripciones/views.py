@@ -17,10 +17,12 @@ def inscripciones_list(request):
     for inscripcion in inscripciones:
         tutor_alumno = inscripcion.tutor_alumno
         alumno_nombre = tutor_alumno.alumno.alum_nom
+        alumno_cedula= tutor_alumno.alumno.alum_ci
         tutor_nombre = tutor_alumno.tutor.tut_nom
         data.append({
             "id": inscripcion.id,
             "alumno": alumno_nombre,
+            "cedula": alumno_cedula,
             "tutor": tutor_nombre,
             "fecha_inscripcion": inscripcion.ins_fecha,
             "descuento": inscripcion.ins_descuento,
@@ -28,7 +30,7 @@ def inscripciones_list(request):
             "estado": inscripcion.ins_estado,
             "periodo": inscripcion.ins_periodo
         })
-    return JsonResponse({"inscripciones": data})
+    return JsonResponse(data, safe=False)
 
 @csrf_exempt
 def inscripcion_create(request):
@@ -40,26 +42,22 @@ def inscripcion_create(request):
             contrato_fecha = parse_date(data.get("ins_contrato_fecha"))
             periodo = data.get("ins_periodo")
 
-            # Validar presencia de datos requeridos
             if not tutor_id or not alumno_id or not contrato_fecha or not periodo:
                 return JsonResponse({"error": "Datos incompletos"}, status=400)
 
-            # Recuperar tutor y alumno
             tutor = Tutor.objects.get(pk=tutor_id)
             alumno = Alumno.objects.get(pk=alumno_id)
 
-            # Crear o recuperar relación Tutor-Alumno
             tutor_alumno, _ = TutorAlumno.objects.get_or_create(
                 alumno=alumno,
                 tutor=tutor
             )
 
-            # Crear inscripción
             inscripcion = Inscripcion.objects.create(
                 tutor_alumno=tutor_alumno,
                 ins_contrato_fecha=contrato_fecha,
                 ins_periodo=periodo,
-                ins_estado='Inscripto'  # Por defecto, estado inicial
+                ins_estado='Inscripto'
             )
 
             return JsonResponse({"message": "Inscripción creada exitosamente", "inscripcion_id": inscripcion.id})
@@ -68,8 +66,7 @@ def inscripcion_create(request):
         except Exception as e:
             return JsonResponse({"error": str(e)}, status=400)
     else:
-        return HttpResponseNotAllowed(["POST"])  # Devuelve 405 solo si el método no es POST
-
+        return HttpResponseNotAllowed(["POST"])
 
 @csrf_exempt
 def inscripcion_anular(request, id):
